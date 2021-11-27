@@ -8,7 +8,7 @@ This works on R with Stan.
 # output examples
 
 from such a data
-![download-1](https://user-images.githubusercontent.com/51182565/143690177-415ed548-06f8-4bbd-99c4-39f8b82df637.png)
+![download-2](https://user-images.githubusercontent.com/51182565/143690704-5e0aea83-8e27-40f8-b54d-15a491b53551.png)
 calculate a logistic model like this.
 ![download](https://user-images.githubusercontent.com/51182565/143690433-b35130a3-508d-4013-9d35-95ff71d3278d.png)
 
