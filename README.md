@@ -113,9 +113,9 @@ It should be considered that the latter method requires a larger data size and c
 
 # Author
 
-### Toshiaki Tameshige PhD.
-### affiliation1: Kihara Institute for Biological Research, Yokohama City Univ.
-### affiliation1: Faculty of Science, Niigata Univ.
+#### Toshiaki Tameshige PhD.
+#### affiliation1: Kihara Institute for Biological Research, Yokohama City Univ.
+#### affiliation1: Faculty of Science, Niigata Univ.
 
 # License
 MIT license (https://en.wikipedia.org/wiki/MIT_License).
