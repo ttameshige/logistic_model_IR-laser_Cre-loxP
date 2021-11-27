@@ -10,7 +10,7 @@ outputs: probability plots from logistic model
 from such a data
 ![download-1](https://user-images.githubusercontent.com/51182565/143690177-415ed548-06f8-4bbd-99c4-39f8b82df637.png)
 calculate a logistic model like this.
-
+![download](https://user-images.githubusercontent.com/51182565/143690433-b35130a3-508d-4013-9d35-95ff71d3278d.png)
 
 # Requirements
 * R and following R libraries
@@ -19,7 +19,7 @@ calculate a logistic model like this.
 * bayesplot
 * ggplot2
 * dplyr
-* tidyverse
+** tidyverse
 
 # Installation
 
