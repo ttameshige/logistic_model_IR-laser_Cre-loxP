@@ -10,27 +10,36 @@ outputs: probability plots from logistic model
 解析結果を直感的に伝える図を載せる
 
 # Requirements
-R
-cmdstanr
-posterior
-ggplot2
-dplyr
-tidyverse
-tibble
-posterior
-bayesplot
+* R
+* cmdstanr
+* posterior
+* ggplot2
+* dplyr
+* tidyverse
+* tibble
+* posterior
+* bayesplot
 
 # Installation
 
 Requirementで列挙したライブラリなどのインストール方法を説明する
 
-```bash
-pip install huga_package
+cmdstanr 
+は、
+
+他のRパッケージは
+```{r}
+library(cmdstanr)
+library(posterior)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(bayesplot)
 ```
 
 # Usage
 
-DEMOの実行方法など、"hoge"の基本的な使い方を説明する
+DEMOの実行方法など、基本的な使い方を説明する
 
 Bayesian model from Stan
 ```{r}
