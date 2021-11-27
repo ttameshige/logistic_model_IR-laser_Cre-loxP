@@ -13,12 +13,10 @@ outputs: probability plots from logistic model
 * R and following R libbraries
 * cmdstanr
 * posterior
+* bayesplot
 * ggplot2
 * dplyr
 * tidyverse
-* tibble
-* posterior
-* bayesplot
 
 # Installation
 
@@ -38,37 +36,85 @@ install.packages("tidyverse")
 
 # Usage
 
-DEMOの実行方法など、基本的な使い方を説明する
-
-Bayesian model from Stan
+get a Bayesian model from Stan
 ```{r}
-source(描画関数1)
-data <- read.delim()
-model <- 
+# import data
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_2.txt")
+
+# data formatting
+power_upper_limit <- 15.5    #set upper limit of fitting data
+data <- data[data$laser_power < power_upper_limit,]    #data filtering 
+data.list <- list(N=dim(data)[1], 
+                        induction=data$recombination, 
+                        power=data$laser_power)
+
+# import Stan model
+file <- "IR-LEGO_creloxp_logit_plimit_model.stan" #define the Stan model file
+mod <- cmdstan_model(file)    #compile the model
+
+# MCMC sampling for logistic model: induction ~ power
+fit_plimit_model <- mod$sample(
+  data = data.list,
+  seed = 123,
+  adapt_delta = 0.999,
+  chains = 4,
+  parallel_chains = 2,
+  refresh = 500
+)
+
+# format the sampling result into a data.frame
+draws <- fit_plimit_model$draws()
+fit_df <- as_draws_df(draws)
+
+# get the most likely parameters from MCMC sampling
+alpha <- median(fit_df$alpha)
+beta <- median(fit_df$beta)
+p.limit <- median(fit_df$plimit)
+
+# make a data frame to plot the logistic model
+x <- seq(5, 15, length.out = 50)
+y <- p.limit / (1 + exp(- beta - alpha * x))
+plot_df <- data.frame(x, y)
+
+# plot the model
+p <- ggplot() +
+  geom_line(aes(x, y), data = plot_df, size = 2, color="green") +
+  scale_x_continuous("Laser Power (mW)", limits = c(5, 20), breaks = seq(5, 20, 2),
+                       ) +
+    scale_y_continuous("Probability", limits = c(-0.05, 1.05),
+                       breaks = seq(0, 1, 0.2))
+print(p)
 
 ```
 
-GLM model
+get standard logistic model from glm()
 ```{r}
-source(描画関数1)
-data <- read.delim()
-model <- 
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_1.txt")
+model <- glm(recombination ~ laser_power, data=data,family=binomial(link="logit"))
+x <- seq(5, 18, length.out = 50)
+y <- 1 / (1 + exp(- model$coefficients["(Intercept)"] - model$coefficients["laser_power"] * x))    # fitting model
+plot_df <- data.frame(x, y)
 
+p <- ggplot() +
+  geom_line(aes(x, y), data = plot_df, size = 2, color="blue") +
+  scale_x_continuous("Laser Power (mW)", limits = c(5, 20), breaks = seq(5, 20, 2),
+                       ) +
+    scale_y_continuous("Probability", limits = c(-0.05, 1.05),
+                       breaks = seq(0, 1, 0.2))
+print(p)
 ```
 
 # Note
 
-右肩上がりのデータ、1でプラトーに達するデータについては glm がおすすめ、
-1未満でプラトーに達するデータについては Stan で求めた bayesian model がおすすめ、
-後者はN数を要求する点と、convergence をチェックした方が良い。
-
+If the maximum probability is  almost 100%, glm() works well.
+If there is a plateau at lower probability, bayesian modeling with Stan works well. 
+It should be considered that the latter method requires a larger data size and confirming the sampling convergence.
 
 # Author
 
-Toshiaki Tameshige
-affiliation1: KIBR, YCU
-E-mail:
-affiliation1: Niigata Univ.
+### Toshiaki Tameshige PhD.
+### affiliation1: Kihara Institute for Biological Research, Yokohama City Univ.
+### affiliation1: Faculty of Science, Niigata Univ.
 
 # License
 MIT license (https://en.wikipedia.org/wiki/MIT_License).
