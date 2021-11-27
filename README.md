@@ -22,9 +22,7 @@ outputs: probability plots from logistic model
 
 # Installation
 
-To install 'cmdstanr', 'posterior' and 'bayesplot', see the github page below 
-https://github.com/stan-dev/cmdstanr
-
+To install 'cmdstanr', 'posterior' and 'bayesplot', see the github page https://github.com/stan-dev/cmdstanr
 In my environment, installation was done by following three commands.
 ```{r}
 devtools::install_github("stan-dev/cmdstanr")
@@ -32,7 +30,8 @@ library(cmdstanr)
 install_cmdstan()
 ```
 
-For other R packages: 'tidyverse', 'ggplot2' and 'dplyr', installation was done by following commands.
+For other R packages: 'tidyverse', 'ggplot2' and 'dplyr', see tidyverse web page https://tidyverse.tidyverse.org/
+In my environment, installation was done by following commands.
 ```{r}
 install.packages("tidyverse")
 ```
