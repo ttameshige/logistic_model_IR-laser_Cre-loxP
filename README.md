@@ -10,7 +10,7 @@ outputs: probability plots from logistic model
 解析結果を直感的に伝える図を載せる
 
 # Requirements
-* R
+* R and following R libbraries
 * cmdstanr
 * posterior
 * ggplot2
@@ -22,19 +22,19 @@ outputs: probability plots from logistic model
 
 # Installation
 
-Requirementで列挙したライブラリなどのインストール方法を説明する
+To install 'cmdstanr', 'posterior' and 'bayesplot', see the github page below 
+https://github.com/stan-dev/cmdstanr
 
-cmdstanr 
-は、
-
-他のRパッケージは
+In my environment, installation was done by following three commands.
 ```{r}
+devtools::install_github("stan-dev/cmdstanr")
 library(cmdstanr)
-library(posterior)
-library(ggplot2)
-library(dplyr)
-library(tidyverse)
-library(bayesplot)
+install_cmdstan()
+```
+
+For other R packages: 'tidyverse', 'ggplot2' and 'dplyr', installation was done by following commands.
+```{r}
+install.packages("tidyverse")
 ```
 
 # Usage
@@ -62,6 +62,7 @@ model <-
 右肩上がりのデータ、1でプラトーに達するデータについては glm がおすすめ、
 1未満でプラトーに達するデータについては Stan で求めた bayesian model がおすすめ、
 後者はN数を要求する点と、convergence をチェックした方が良い。
+
 
 # Author
 
