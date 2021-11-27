@@ -1,9 +1,9 @@
 # logistic_model_IR-laser_Cre-loxP
 
-This is a program to analyze probabilities of stochastic cellular events like cellular Cre-loxP DNA recombination or cell death.
+* This is a program to analyze probabilities of stochastic cellular events like cellular Cre-loxP DNA recombination or cell death.
 This works on R with Stan.
-input data: tab delimited file including objective variable (0 or 1 indicating occurance of Cre-loxP recombination) and explanatory variable (continuous values of laser power)
-outputs: probability plots from logistic model
+* input data: tab delimited file including objective variable (0 or 1 indicating occurance of Cre-loxP recombination) and explanatory variable (continuous values of laser power)
+* outputs: probability plots from logistic model
 
 # output examples
 
@@ -19,7 +19,7 @@ calculate a logistic model like this.
 * bayesplot
 * ggplot2
 * dplyr
-** tidyverse
+* tidyverse
 
 # Installation
 
