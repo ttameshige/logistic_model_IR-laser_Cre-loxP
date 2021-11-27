@@ -7,11 +7,13 @@ outputs: probability plots from logistic model
 
 # output examples
 
-解析結果を直感的に伝える図を載せる
+from such a data
 ![download-1](https://user-images.githubusercontent.com/51182565/143690177-415ed548-06f8-4bbd-99c4-39f8b82df637.png)
+calculate a logistic model like this.
+
 
 # Requirements
-* R and following R libbraries
+* R and following R libraries
 * cmdstanr
 * posterior
 * bayesplot
