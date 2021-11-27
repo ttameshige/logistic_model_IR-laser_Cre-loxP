@@ -1,0 +1,196 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Analyze demo data for logistic regression
+
+libraries
+```{r}
+library(cmdstanr)
+library(posterior)
+library(bayesplot)
+
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+```
+
+define plotting function for stacked bar plot of observation ratio
+```{r}
+plot_ratiostackbar <- function(df, title="ratio-stack bar plot") {
+  
+  df <- na.omit(df)
+  input_category <- unique(df[,1])
+  output_number_positive <- integer(length(input_category))
+  output_number_negative <- integer(length(input_category))
+  
+  for (i in 1:length(input_category)){
+    df_single_category <- df[df[,1] == input_category[i],]
+    output_number_positive[i] <- dim(df_single_category[df_single_category[,2] == 1,])[1]
+    output_number_negative[i] <- dim(df_single_category[df_single_category[,2] == 0,])[1]
+  }
+  
+  data_plotting <- data.frame(input_category = rep(input_category,2),
+                              output_number = c(output_number_positive, output_number_negative),
+                              output_class = rep(c("positive","negative"), each=length(input_category)))
+  
+  g <- ggplot(data_plotting, aes(fill=output_class, y=output_number, x=input_category)) + 
+    geom_bar(position="fill", stat="identity") +
+    ylab("observation_ratio") +
+    ggtitle(label=title)
+  
+  plot(g)
+ }
+```
+
+# demo data1 (probability range from 0% to 100%)
+read demo_data1
+```{r}
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_1.txt")
+data
+```
+plot data overview
+```{r}
+data$laser_power <- as.factor(data$laser_power)
+plot_ratiostackbar(df=data, title="demo data1")
+```
+standard logistic modeling, that is glm() with link="logit"
+```{r}
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_1.txt")
+model <- glm(recombination ~ laser_power, data=data,family=binomial(link="logit"))
+summary(model)
+```
+
+```{r}
+x <- seq(5, 18, length.out = 50)
+y <- 1 / (1 + exp(- model$coefficients["(Intercept)"] - model$coefficients["laser_power"] * x))    # fitting model
+plot_df <- data.frame(x, y)
+
+p <- ggplot() +
+  geom_line(aes(x, y), data = plot_df, size = 2, color="blue") +
+  scale_x_continuous("Laser Power (mW)", limits = c(5, 20), breaks = seq(5, 20, 2),
+                       ) +
+    scale_y_continuous("Probability", limits = c(-0.05, 1.05),
+                       breaks = seq(0, 1, 0.2))
+print(p)
+```
+
+
+# demo data2 (not achieve 100% probability)
+read demo_data2
+```{r}
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_2.txt")
+data
+```
+plot data overview
+```{r}
+data$laser_power <- as.factor(data$laser_power)
+plot_ratiostackbar(df=data, title="demo data2")
+```
+select laser power range for a increasing function of logistic model
+```{r}
+power_upper_limit <- 15.5    #set upper limit of fitting data
+
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_2.txt")
+data <- data[data$laser_power < power_upper_limit,] # power filtering suitable for logistic regression that is sigmoid curve
+```
+
+format the data to be input into the sampler
+```{r}
+data.list <- list(N=dim(data)[1], 
+                        induction=data$recombination, 
+                        power=data$laser_power)
+print(data.list)
+```
+compile stan model
+```{r}
+file <- "IR-LEGO_creloxp_logit_plimit_model.stan" #define the model file
+mod <- cmdstan_model(file)    #compile the model
+```
+check stan model
+```{r}
+mod$print()    #display the model code
+```
+MCMC Sampling
+```{r}
+### MCMC sampling for logistic model: induction ~ power
+fit_plimit_model <- mod$sample(
+  data = data.list,
+  seed = 123,
+  adapt_delta = 0.999,
+  chains = 4,
+  parallel_chains = 2,
+  refresh = 500
+)
+```
+
+Check Posterior summary statistics
+```{r}
+fit_plimit_model$summary()
+```
+
+```{r}
+mcmc_hist(fit_plimit_model$draws("plimit"))
+```
+
+```{r}
+mcmc_hist(fit_plimit_model$draws("alpha"))
+```
+
+```{r}
+mcmc_hist(fit_plimit_model$draws("beta"))
+```
+check CmdStan’s diagnose and stansummary utilities
+```{r}
+fit_plimit_model$cmdstan_diagnose()
+```
+```{r}
+fit_plimit_model$cmdstan_summary()
+```
+plot trace
+```{r}
+np_cp <- nuts_params(fit_plimit_model)
+head(np_cp)
+```
+
+```{r}
+#trace plot plimit
+mcmc_trace(fit_plimit_model$draws("plimit")) +
+  xlab("iteration, sampling phase after warming")
+```
+```{r}
+#trace plot alpha
+mcmc_trace(fit_plimit_model$draws("alpha")) +
+  xlab("iteration, sampling phase after warming")
+```
+```{r}
+#trace plot alpha
+mcmc_trace(fit_plimit_model$draws("beta")) +
+  xlab("iteration, sampling phase after warming")
+```
+format sampling results
+```{r}
+draws <- fit_plimit_model$draws()
+fit_df <- as_draws_df(draws) #format into a data.frame
+head(fit_df)     #display the sampling results
+```
+plot the best model from stan
+```{r}
+alpha <- median(fit_df$alpha)
+beta <- median(fit_df$beta)
+p.limit <- median(fit_df$plimit)
+
+x <- seq(5, 15, length.out = 50)
+y <- p.limit / (1 + exp(- beta - alpha * x))
+plot_df <- data.frame(x, y)
+
+p <- ggplot() +
+  geom_line(aes(x, y), data = plot_df, size = 2, color="green") +
+  scale_x_continuous("Laser Power (mW)", limits = c(5, 20), breaks = seq(5, 20, 2),
+                       ) +
+    scale_y_continuous("Probability", limits = c(-0.05, 1.05),
+                       breaks = seq(0, 1, 0.2))
+print(p)
+```
+
