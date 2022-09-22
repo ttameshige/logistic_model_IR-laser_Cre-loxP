@@ -1,6 +1,6 @@
 # logistic_model_IR-laser_Cre-loxP
 
-* This is a program to analyze probabilities of stochastic cellular events like cellular Cre-loxP DNA recombination or cell death.
+* This is a program to analyze probabilities of stochastic cellular events like cellular Cre-loxP DNA recombination and cell death, which are occured when the cells are heated with IR-LEGO system (Kamei et al. Nat. Methods 6, 79-81. 2009)
 This works on R with Stan.
 * input data: tab delimited file including objective variable (0 or 1 indicating occurance of Cre-loxP recombination) and explanatory variable (continuous values of laser power)
 * outputs: probability plots from logistic model
