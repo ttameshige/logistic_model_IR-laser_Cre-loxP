@@ -117,7 +117,7 @@ It should be considered that the latter method requires a larger data size and c
 
 #### Toshiaki Tameshige PhD.
 #### affiliation1: Kihara Institute for Biological Research, Yokohama City Univ.
-#### affiliation2: Faculty of Science, Niigata Univ.
+#### affiliation2: Graduate School of Biological Sciences, Nara Institute of Science and Technology
 
 # Acknowledgments
 I appreciate Dr. Yasuhiro Sato for kind advise in appropriate usage of MCMC.
