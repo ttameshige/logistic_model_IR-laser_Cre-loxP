@@ -1,0 +1,353 @@
+---
+title: "logistic regression in R"
+output: html_notebook
+author: "Toshiaki Tameshige"
+date: "2022-11-22"
+---
+
+# Analyze demo data for logistic regression and likelihood-ratio test
+
+libraries
+```{r}
+library(cmdstanr)
+library(posterior)
+library(bayesplot)
+library(tidyverse)
+```
+
+define plotting function for stacked bar plot of observation ratio
+```{r}
+plot_ratiostackbar <- function(df, title="ratio-stack bar plot") {
+  
+  df <- na.omit(df)
+  input_category <- unique(df[,1])
+  output_number_positive <- integer(length(input_category))
+  output_number_negative <- integer(length(input_category))
+  
+  for (i in 1:length(input_category)){
+    df_single_category <- df[df[,1] == input_category[i],]
+    output_number_positive[i] <- dim(df_single_category[df_single_category[,2] == 1,])[1]
+    output_number_negative[i] <- dim(df_single_category[df_single_category[,2] == 0,])[1]
+  }
+  
+  data_plotting <- data.frame(input_category = rep(input_category,2),
+                              output_number = c(output_number_positive, output_number_negative),
+                              output_class = rep(c("positive","negative"), each=length(input_category)))
+  
+  g <- ggplot(data_plotting, aes(fill=output_class, y=output_number, x=input_category)) + 
+    geom_bar(position="fill", stat="identity") +
+    ylab("observation_ratio") +
+    ggtitle(label=title)
+  
+  return(g)
+ }
+```
+
+# demo data4 (probability range from 0% to 100%)
+read demo_data4
+```{r}
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_4.txt")
+data
+```
+plot data overview
+```{r}
+data$laser_power <- as.factor(data$laser_power)
+df <- data[,c("laser_power","recombination")]
+g <- plot_ratiostackbar(df=df, title="demo data4")+xlab("laser power (mW)")
+print(g)
+```
+plot the cell size distribution
+```{r}
+data %>% ggplot(aes(x = laser_power, y = cell_size)) +
+    geom_jitter(position = position_jitter(height = 0, width = 0.1), size=0.5) +
+  xlab("laser power (mW)") +
+  ylab(expression(paste ("cell size (", {µm^2}, ")", sep="")))+
+  ggtitle("demo data4")
+```
+
+standard logistic modeling, that is glm() with link="logit"
+here we assume cell-size effects on "intercept" (independent effect) and "slope" (interaction with laser_power)
+```{r}
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_4.txt")    #import data
+model <- glm(recombination ~ laser_power + cell_size + laser_power:cell_size, data=data,family=binomial(link="logit"))
+summary(model)
+```
+plot the curves of the model at some cell sizes
+```{r}
+cell_size_4plot <- c(2400,2800,3200,3600,4000)
+n_xpoints <- 50
+
+x <- seq(5, 16, length.out = n_xpoints)
+
+plot_df <- data.frame(x=numeric(0),y=numeric(0),cell_size=numeric(0))
+
+for (i in 1:length(cell_size_4plot)){
+  y <- 1 / (1 + exp(- model$coefficients["(Intercept)"] - model$coefficients["laser_power"] * x - model$coefficients["cell_size"] * cell_size_4plot[i] - model$coefficients["laser_power:cell_size"] *x* cell_size_4plot[i]))    # simulate y according to the model
+  each_df <- data.frame(x, y,cell_size=rep(cell_size_4plot[i],times=n_xpoints))
+  plot_df <- rbind(plot_df,each_df)
+}
+plot_df$cell_size <- as.factor(plot_df$cell_size)
+
+#plot with variation in cell size
+p <- ggplot(data = plot_df) +
+  geom_line(aes(x=x, y=y, color=cell_size), size = 1.5) +
+  scale_x_continuous("Power (mW)", limits = c(4, 16), breaks = seq(4, 16, 2),
+                       ) +
+    scale_y_continuous("Pr (recombination)", limits = c(-0.05, 1.05),
+                       breaks = seq(0, 1, 0.2))
+print(p)
+```
+likelihood-ratio test
+```{r}
+library(lmtest)
+
+#model1 is a reduced model
+model1 <- glm(recombination ~ laser_power, data=data,family=binomial(link="logit"))
+# model2 is a full model
+model2 <- glm(recombination ~ laser_power + cell_size + laser_power:cell_size, data=data,family=binomial(link="logit"))
+
+#likelihood-ratio test
+lrtest(model2,model1)
+```
+The cell_size effect is significant!
+
+
+
+# demo data3 (not achieving 100% probability)
+read demo_data3
+```{r}
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_3.txt")
+data
+```
+plot data overview
+```{r}
+data$laser_power <- as.factor(data$laser_power)
+df <- data[,c("laser_power","recombination")]
+g <- plot_ratiostackbar(df=df, title="demo data3")+xlab("laser power (mW)")
+print(g)
+```
+select laser power range for a increasing function of logistic model
+```{r}
+power_upper_limit <- 15    #set upper limit of fitting data
+
+data <- read.delim("demoData_IR-LEGO_Cre-loxP_3.txt")    #import data
+data <- data[data$laser_power < power_upper_limit,] # power filtering suitable for logistic regression that is sigmoid curve
+
+#scaling of the cell size data
+data$cell_size.scale <- as.numeric(scale(data$cell_size))
+
+dim(data)
+```
+
+format the data to be input into the sampler
+```{r}
+data.list <- list(N=dim(data)[1], 
+                        induction=data$recombination, 
+                        power=data$laser_power, 
+                        size=data$cell_size.scale)
+print(data.list)
+```
+compile stan model
+```{r}
+file <- "IR-LEGO_creloxp_logit_plimitcellsize_model.stan" #define the model file
+mod <- cmdstan_model(file)    #compile the model
+```
+check stan model
+```{r}
+mod$print()    #display the model code
+```
+MCMC Sampling
+```{r}
+### MCMC sampling for logistic model: induction ~ power+size+power:size
+fit_plimitsize_model <- mod$sample(
+  data = data.list,
+  seed = 111,
+  adapt_delta = 0.999,
+  chains = 4,
+  parallel_chains = 2,
+  refresh = 500
+)
+```
+check diagnostics
+```{r}
+fit_plimitsize_model$cmdstan_diagnose()
+```
+check sampling summary
+```{r}
+fit_plimitsize_model$cmdstan_summary()
+```
+trace plot
+```{r}
+#trace plot plimit_a
+mcmc_trace(fit_plimitsize_model$draws("plimit_a")) +
+  xlab("iteration, only post-warmup")
+```
+
+sampled posterior distribution
+```{r}
+mcmc_hist(fit_plimitsize_model$draws("plimit_a"))
+```
+
+```{r}
+mcmc_hist(fit_plimitsize_model$draws("plimit_b"))
+mcmc_hist(fit_plimitsize_model$draws("alpha_one"))
+mcmc_hist(fit_plimitsize_model$draws("alpha_two"))
+mcmc_hist(fit_plimitsize_model$draws("alpha_three"))
+mcmc_hist(fit_plimitsize_model$draws("beta"))
+```
+
+Now, we adopt the median values of parameter samples because some distribution shows skewness making the mean values not the best representative.
+get median values from the samples as the maximum likelihood parameters
+```{r}
+alpha_one <- median(fit_plimitsize_model$draws("alpha_one"))
+alpha_two <- median(fit_plimitsize_model$draws("alpha_two"))
+alpha_three <- median(fit_plimitsize_model$draws("alpha_three"))
+beta <- median(fit_plimitsize_model$draws("beta"))
+p.limit_b <- median(fit_plimitsize_model$draws("plimit_b"))
+p.limit_a <- median(fit_plimitsize_model$draws("plimit_a"))
+```
+
+plot the model at some cell sizes: 2400,2800,3200,3600,4000
+```{r}
+cell_size_4plot <- c(2400,2800,3200,3600,4000)
+
+mean_cell_size_raw <- mean(data$cell_size)
+sd_cell_size_raw <- sd(data$cell_size)
+cell_size_4plot.scale <- (cell_size_4plot - mean_cell_size_raw)/sd_cell_size_raw    #scale the cell size
+
+n_xpoints <- 30
+plot_df <- data.frame(x=numeric(0),y=numeric(0),cell_size=numeric(0))
+
+for (i in 1:length(cell_size_4plot)){
+  x <- seq(5.5, 14, length.out = n_xpoints)
+  y <- (p.limit_b + cell_size_4plot.scale[i]*p.limit_a) / (1 + exp(- beta - alpha_one * x - alpha_two * cell_size_4plot.scale[i] - alpha_three*x*cell_size_4plot.scale[i]))
+  each_df <- data.frame(x, y,cell_size=rep(cell_size_4plot[i],times=n_xpoints))
+  plot_df <- rbind(plot_df,each_df)
+}
+plot_df$cell_size <- as.factor(plot_df$cell_size)
+
+p <- ggplot(data = plot_df) +
+  geom_line(aes(x=x, y=y, color=cell_size), size = 1.5) +
+  scale_x_continuous("Power (mW)", limits = c(4, 20), breaks = seq(4, 20, 2),
+                       ) +
+    scale_y_continuous("Pr (recombination)", limits = c(-0.05, 1.05),
+                       breaks = seq(0, 1, 0.2))
+print(p)
+```
+
+next, calcurate deviance of the models
+full model with cell_size, cell_size-laser_power interaction and cell_size-p.limit interaction
+
+```{r}
+new_x1 <- data$laser_power
+new_x2 <- data$cell_size.scale
+
+pred_prob <- (p.limit_b + new_x2*p.limit_a) / (1 + exp(- beta - alpha_one * new_x1 - alpha_two * new_x2 - alpha_three*new_x1*new_x2))   #get the induction rate, or probability, predicted from our bayesian model with laser power and cell size
+
+#calculate deviance by simply multiplying of probabilities
+pos <- (data$recombination == 1)
+neg <- (data$recombination == 0)
+
+#probability of unsuccess
+pred_prob_false <- 1- pred_prob
+
+manual_loglikelihood <- sum(log(pred_prob[pos])) + sum(log(pred_prob_false[neg]))
+
+manual_deviance_model1 <- -2*manual_loglikelihood
+paste0("full model deviance = ",manual_deviance_model1)
+```
+
+next, a reduced model ignoring cell-size effect
+format the data to be input into the sampler
+
+```{r}
+data.list <- list(N=dim(data)[1], 
+                        induction=data$recombination, 
+                        power=data$laser_power)
+print(data.list)
+```
+compile stan model
+```{r}
+file <- "IR-LEGO_creloxp_logit_plimit_model.stan" #define the model file
+mod <- cmdstan_model(file)    #compile the model
+```
+check stan model
+```{r}
+mod$print()    #display the model code
+```
+```{r}
+### MCMC sampling for logistic model: induction ~ power
+fit_plimit_model <- mod$sample(
+  data = data.list,
+  seed = 111,
+  adapt_delta = 0.999,
+  chains = 4,
+  parallel_chains = 2,
+  refresh = 500
+)
+```
+check the posterior
+```{r}
+mcmc_hist(fit_plimit_model$draws("plimit"))
+mcmc_hist(fit_plimit_model$draws("alpha"))
+mcmc_hist(fit_plimit_model$draws("beta"))
+```
+get median values from the samples as the maximum likelihood parameters
+```{r}
+alpha <- median(fit_plimit_model$draws("alpha"))
+beta <- median(fit_plimit_model$draws("beta"))
+p.limit <- median(fit_plimit_model$draws("plimit"))
+```
+plot the resulting model
+```{r}
+x <- seq(5.5, 14, length.out = 30)
+y <- p.limit / (1 + exp(- beta - alpha * x))
+plot_df <- data.frame(x, y)
+
+p <- ggplot() +
+  geom_line(aes(x, y), data = plot_df, size = 2, color="red") +
+  
+  scale_x_continuous("Power (mW)", limits = c(4, 20), breaks = seq(4, 20, 2),
+                       ) +
+    scale_y_continuous("Pr (recombination)", limits = c(-0.05, 1.05),
+                       breaks = seq(0, 1, 0.2))
+print(p)
+```
+
+```{r}
+new_x <- data$laser_power
+
+pred_prob <- p.limit / (1 + exp(- beta - alpha * new_x ))   # induction rate, or probability, predicted from our model with only laser power
+
+pos <- (data$recombination == 1)
+neg <- (data$recombination == 0)
+
+#probability of unsuccess
+pred_prob_false <- 1- pred_prob
+
+manual_loglikelihood <- sum(log(pred_prob[pos])) + sum(log(pred_prob_false[neg]))
+
+manual_deviance_model2 <- -2*manual_loglikelihood
+paste0("cell size-ignored model deviance = ",manual_deviance_model2)
+```
+
+Then difference of deviance is
+```{r}
+diff_dev <- manual_deviance_model2 - manual_deviance_model1
+print(diff_dev)
+```
+What is chisq value at df=3, p<0.05?
+```{r}
+qchisq(0.05,3,lower.tail = FALSE)
+```
+the p-value of the likelihood-raio test of our bayesian models
+```{r}
+p_LRT <- pchisq(diff_dev, 3,lower.tail = FALSE)
+paste0("likelihood-ratio test, p = ",p_LRT)
+```
+The cell_size effect is significant!
+
+```{r}
+sessionInfo()
+```
+
