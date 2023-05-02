@@ -1,0 +1,429 @@
+---
+title: "logistic regression in R"
+output: html_notebook
+author: "Toshiaki Tameshige"
+date: "2023-05-02"
+---
+
+# Analyze demo data for Bayesian logistic regression and likelihood-ratio test
+#### The p-values of the likelihood-ratio test (LRT) between Bayesian models calculated in "demoData_analysis_3.Rmd" may be less accurate than those from the LRT between models based on glm function. This is because there is a concern that being non-linear model and the fitting by MCMC method may decrease the extent to which the distribution followed by the statistic, i.e. two times the log likelihood ratio or difference of deviances, approximate the chi-square distribution. The parametric bootstrap approach is a good alternative for LRT when there is a concern on the approximation by chi-square distribution. However, parametric bootstrap LRT (pbLRT) can requires a very long computational time because of the large number (>1,000) of bootstrap iterations. Here, instead of p-value calculation by pbLRT, I show how to run small number of bootstrap iterations and check the similarity between the distribution of test statistic (two times the log-likelihood ratio) and chi-square distribution under the null hypothesis.
+
+### before run below, make sure that you have enough storage (maybe 2.2 GB) because the program below save each mcmc sampling results as RData and text files
+
+libraries
+```{r}
+library(cmdstanr)
+library(posterior)
+library(bayesplot)
+library(tidyverse)
+```
+
+check if there is a directory "original_model_parameters" which contain the Bayesian model parameters from the original data
+```{r}
+list.files("original_model_parameters/")
+```
+
+some preparation for parametric bootstrap likelihood-ratio test
+```{r}
+# clear all objects
+rm(list = ls())
+
+# import the original fitting parameters of model2 (size-ignoring)
+load("./original_model_parameters/model2_parameters.RData")
+
+power_upper_limit <- 15    #set upper limit of fitting data
+data_ori <- read.delim("demoData_IR-LEGO_Cre-loxP_3.txt")    #import data
+data_ori <- data_ori[data_ori$laser_power < power_upper_limit,] # power filtering suitable for logistic regression that is sigmoid curve
+
+data_ori$cell_size.scale <- as.numeric(scale(data_ori$cell_size))   #scaling of the cell size data
+x <- data_ori$laser_power
+yp <- mdl2_p.limit / (1 + exp(- mdl2_beta - mdl2_alpha * x))
+```
+
+compile the stan models
+```{r}
+file <- "IR-LEGO_creloxp_logit_plimitcellsize_model2.stan" #define the model file
+mod1 <- cmdstan_model(file)    #compile the full model as mod1
+
+file <- "IR-LEGO_creloxp_logit_plimit_model.stan" #define the model file
+mod2 <- cmdstan_model(file)    #compile the reduced model as mod2
+```
+
+make required directories
+```{r}
+dir.create("mcmc_results_LR")
+dir.create("mcmc_diagnose_model1")
+dir.create("mcmc_diagnose_model2")
+dir.create("mcmc_results_model1")
+dir.create("mcmc_results_model1param")
+dir.create("mcmc_results_model2")
+dir.create("mcmc_results_model2param")
+dir.create("mcmc_results_recombData")
+
+```
+
+set the trial number for bootstrap
+```{r}
+k_max <- 150
+all_diff_dev <- numeric(k_max)
+```
+
+try loop for only 2 times (just trial)
+```{r, message=FALSE}
+t1 <- Sys.time()
+
+#k <- 1
+k_max <- 2
+
+for (k in 1:k_max) {
+  y01 <- integer(length(yp))
+  for (i in 1:length(yp)){
+    set.seed(i+k*10)
+    y01[i] <- rbinom(1,1,yp[i])
+  }
+  
+  #save the simulation data of k
+  save(y01,file=paste0("mcmc_results_recombData/recombData_",
+                       formatC(k, width = 4, flag = "0"),
+                       ".RData"))
+
+  ### reduced model
+  # formatting the data to input into the sampler
+  data.list <- list(N=dim(data_ori)[1], 
+                    induction=y01, 
+                    power=data_ori$laser_power)
+
+  ### MCMC sampling for logistic model: induction ~ power
+  fit_plimit_model <- mod2$sample(
+    data = data.list,
+    seed = 111,
+    adapt_delta = 0.999,
+    chains = 4,
+    parallel_chains = 2,
+    refresh = 500
+    )
+
+  #save the MCMC result in RData with a file name with 4-digit k number
+  fit_plimit_model$save_object(file = paste0("mcmc_results_model2/fit_plimit_model_",
+                                     formatC(k, width = 4, flag = "0"),
+                                     ".RData"))
+  
+  #save the diagnose message
+  msgtxt <- fit_plimit_model$cmdstan_diagnose()
+  fn_dgn <- paste0("mcmc_diagnose_model2/diagnose_model2_",
+                   formatC(k, width = 4, flag = "0"),
+                   ".txt")
+  cat(file = fn_dgn)
+  writeLines(msgtxt$stdout, con = fn_dgn)
+
+  #get the median values as the maximum likely parameters
+  mdl2_alpha <- median(fit_plimit_model$draws("alpha"))
+  mdl2_beta <- median(fit_plimit_model$draws("beta"))
+  mdl2_p.limit <- median(fit_plimit_model$draws("plimit"))
+
+  #save the model_2 parameters of trial k
+  save(mdl2_alpha,
+       mdl2_beta,
+       mdl2_p.limit,
+       file=paste0("mcmc_results_model2param/parameter_model2_",
+                   formatC(k, width = 4, flag = "0"),
+                   ".RData"))
+  
+  #calculate the deviance of the reduced model
+  new_x <- data_ori$laser_power
+
+  pred_prob <- mdl2_p.limit / (1 + exp(- mdl2_beta - mdl2_alpha * new_x ))   # induction rate, or probability, predicted from our model with only laser power
+
+  pos <- (y01 == 1)
+  neg <- (y01 == 0)
+  #probability of unsuccess
+  pred_prob_false <- 1- pred_prob
+
+  manual_loglikelihood <- sum(log(pred_prob[pos])) + sum(log(pred_prob_false[neg]))
+  manual_deviance_model2 <- -2*manual_loglikelihood    #deviance of the reduced model
+  rm(manual_loglikelihood)
+
+  ### full model
+  # formatting the data to input into the sampler of full model
+  data.list <- list(N=dim(data_ori)[1], 
+                    induction=y01,
+                    power=data_ori$laser_power, 
+                    size=data_ori$cell_size.scale)
+
+  ### MCMC sampling for logistic model: induction ~ power+size+power:size
+  fit_plimitsize_model <- mod1$sample(
+    data = data.list,
+    seed = 111,
+    adapt_delta = 0.999,
+    chains = 4,
+    parallel_chains = 2,
+    refresh = 500
+    )
+
+  #save the MCMC result in RData with a file name with 4-digit k number
+  fit_plimitsize_model$save_object(file = paste0("mcmc_results_model1/fit_plimitsize_model_",
+                                         formatC(k, width = 4, flag = "0"),
+                                         ".RData"))
+
+  #save the diagnose message
+  msgtxt <- fit_plimitsize_model$cmdstan_diagnose()
+  fn_dgn <- paste0("mcmc_diagnose_model1/diagnose_model1_",
+                   formatC(k, width = 4, flag = "0"),
+                   ".txt")
+  cat(file = fn_dgn)
+  writeLines(msgtxt$stdout, con = fn_dgn)
+
+  #get the median values as the maximum likely parameters
+  mdl1_alpha_one <- median(fit_plimitsize_model$draws("alpha_one"))
+  mdl1_alpha_two <- median(fit_plimitsize_model$draws("alpha_two"))
+  mdl1_alpha_three <- median(fit_plimitsize_model$draws("alpha_three"))
+  mdl1_beta <- median(fit_plimitsize_model$draws("beta"))
+  mdl1_p.limit_b <- median(fit_plimitsize_model$draws("plimit_b"))
+  mdl1_p.limit_a <- median(fit_plimitsize_model$draws("plimit_a"))
+
+  #save the model_1 parameters of trial k
+  save(mdl1_alpha_one,
+       mdl1_alpha_two,
+       mdl1_alpha_three,
+       mdl1_beta,
+       mdl1_p.limit_b,
+       mdl1_p.limit_a,
+       file=paste0("mcmc_results_model1param/parameter_model1_",
+                   formatC(k, width = 4, flag = "0"),
+                   ".RData"))
+  
+  #calculate the deviance of the full model
+  new_x1 <- data_ori$laser_power
+  new_x2 <- data_ori$cell_size.scale
+
+  pred_prob <- (mdl1_p.limit_b + new_x2*mdl1_p.limit_a) / (1 + exp(- mdl1_beta - mdl1_alpha_one * new_x1 - mdl1_alpha_two * new_x2 - mdl1_alpha_three*new_x1*new_x2))   #get the induction rate, or probability, predicted from our bayesian model with laser power and cell size
+
+  #calculate deviance by simply multiplying of probabilities
+
+  pred_prob_false <- 1- pred_prob   #probability of unsuccess
+
+  manual_loglikelihood <- sum(log(pred_prob[pos])) + sum(log(pred_prob_false[neg]))
+
+  manual_deviance_model1 <- -2*manual_loglikelihood
+
+  diff_dev <- manual_deviance_model2 - manual_deviance_model1
+  
+  diff_dev
+  all_diff_dev[k] <- diff_dev
+}
+```
+
+try fill loop for parametric bootstrap LRT
+```{r, message=FALSE}
+t1 <- Sys.time()
+
+#k <- 1
+k_max <- 150
+
+for (k in 3:k_max) {
+  y01 <- integer(length(yp))
+  for (i in 1:length(yp)){
+    set.seed(i+k*10)
+    y01[i] <- rbinom(1,1,yp[i])
+  }
+  
+  #save the simulation data of k
+  save(y01,file=paste0("mcmc_results_recombData/recombData_",
+                       formatC(k, width = 4, flag = "0"),
+                       ".RData"))
+
+  ### reduced model
+  # formatting the data to input into the sampler
+  data.list <- list(N=dim(data_ori)[1], 
+                    induction=y01, 
+                    power=data_ori$laser_power)
+
+  ### MCMC sampling for logistic model: induction ~ power
+  fit_plimit_model <- mod2$sample(
+    data = data.list,
+    seed = 111,
+    adapt_delta = 0.999,
+    chains = 4,
+    parallel_chains = 2,
+    refresh = 500
+    )
+
+  #save the MCMC result in RData with a file name with 4-digit k number
+  fit_plimit_model$save_object(file = paste0("mcmc_results_model2/fit_plimit_model_",
+                                     formatC(k, width = 4, flag = "0"),
+                                     ".RData"))
+  
+  #save the diagnose message
+  msgtxt <- fit_plimit_model$cmdstan_diagnose()
+  fn_dgn <- paste0("mcmc_diagnose_model2/diagnose_model2_",
+                   formatC(k, width = 4, flag = "0"),
+                   ".txt")
+  cat(file = fn_dgn)
+  writeLines(msgtxt$stdout, con = fn_dgn)
+
+  #get the median values as the maximum likely parameters
+  mdl2_alpha <- median(fit_plimit_model$draws("alpha"))
+  mdl2_beta <- median(fit_plimit_model$draws("beta"))
+  mdl2_p.limit <- median(fit_plimit_model$draws("plimit"))
+
+  #save the model_2 parameters of trial k
+  save(mdl2_alpha,
+       mdl2_beta,
+       mdl2_p.limit,
+       file=paste0("mcmc_results_model2param/parameter_model2_",
+                   formatC(k, width = 4, flag = "0"),
+                   ".RData"))
+  
+  #calculate the deviance of the reduced model
+  new_x <- data_ori$laser_power
+
+  pred_prob <- mdl2_p.limit / (1 + exp(- mdl2_beta - mdl2_alpha * new_x ))   # induction rate, or probability, predicted from our model with only laser power
+
+  pos <- (y01 == 1)
+  neg <- (y01 == 0)
+  #probability of unsuccess
+  pred_prob_false <- 1- pred_prob
+
+  manual_loglikelihood <- sum(log(pred_prob[pos])) + sum(log(pred_prob_false[neg]))
+  manual_deviance_model2 <- -2*manual_loglikelihood    #deviance of the reduced model
+  rm(manual_loglikelihood)
+
+  ### full model
+  # formatting the data to input into the sampler of full model
+  data.list <- list(N=dim(data_ori)[1], 
+                    induction=y01,
+                    power=data_ori$laser_power, 
+                    size=data_ori$cell_size.scale)
+
+  ### MCMC sampling for logistic model: induction ~ power+size+power:size
+  fit_plimitsize_model <- mod1$sample(
+    data = data.list,
+    seed = 111,
+    adapt_delta = 0.999,
+    chains = 4,
+    parallel_chains = 2,
+    refresh = 500
+    )
+
+  #save the MCMC result in RData with a file name with 4-digit k number
+  fit_plimitsize_model$save_object(file = paste0("mcmc_results_model1/fit_plimitsize_model_",
+                                         formatC(k, width = 4, flag = "0"),
+                                         ".RData"))
+
+  #save the diagnose message
+  msgtxt <- fit_plimitsize_model$cmdstan_diagnose()
+  fn_dgn <- paste0("mcmc_diagnose_model1/diagnose_model1_",
+                   formatC(k, width = 4, flag = "0"),
+                   ".txt")
+  cat(file = fn_dgn)
+  writeLines(msgtxt$stdout, con = fn_dgn)
+
+  #get the median values as the maximum likely parameters
+  mdl1_alpha_one <- median(fit_plimitsize_model$draws("alpha_one"))
+  mdl1_alpha_two <- median(fit_plimitsize_model$draws("alpha_two"))
+  mdl1_alpha_three <- median(fit_plimitsize_model$draws("alpha_three"))
+  mdl1_beta <- median(fit_plimitsize_model$draws("beta"))
+  mdl1_p.limit_b <- median(fit_plimitsize_model$draws("plimit_b"))
+  mdl1_p.limit_a <- median(fit_plimitsize_model$draws("plimit_a"))
+
+  #save the model_1 parameters of trial k
+  save(mdl1_alpha_one,
+       mdl1_alpha_two,
+       mdl1_alpha_three,
+       mdl1_beta,
+       mdl1_p.limit_b,
+       mdl1_p.limit_a,
+       file=paste0("mcmc_results_model1param/parameter_model1_",
+                   formatC(k, width = 4, flag = "0"),
+                   ".RData"))
+  
+  #calculate the deviance of the full model
+  new_x1 <- data_ori$laser_power
+  new_x2 <- data_ori$cell_size.scale
+
+  pred_prob <- (mdl1_p.limit_b + new_x2*mdl1_p.limit_a) / (1 + exp(- mdl1_beta - mdl1_alpha_one * new_x1 - mdl1_alpha_two * new_x2 - mdl1_alpha_three*new_x1*new_x2))   #get the induction rate, or probability, predicted from our bayesian model with laser power and cell size
+
+  #calculate deviance by simply multiplying of probabilities
+
+  pred_prob_false <- 1- pred_prob   #probability of unsuccess
+
+  manual_loglikelihood <- sum(log(pred_prob[pos])) + sum(log(pred_prob_false[neg]))
+
+  manual_deviance_model1 <- -2*manual_loglikelihood
+
+  diff_dev <- manual_deviance_model2 - manual_deviance_model1
+  
+  diff_dev
+  all_diff_dev[k] <- diff_dev
+}
+
+t2 <- Sys.time()
+```
+
+see the time it took in the program above
+```{r}
+print(t2 - t1)
+```
+
+check the obtained test statistics (difference of deviances under null hypothesis)
+```{r}
+all_diff_dev
+```
+
+save check the obtained test statistics
+```{r}
+save(all_diff_dev, file=paste0("mcmc_results_LR/all_diff_dev_",
+                                         formatC(k, width = 4, flag = "0"),
+                                         ".RData"))
+```
+
+Check the distribution. 
+Note that sometimes it includes minus values which are results from incorrect MCMC sampling. They should be removed.
+```{r}
+all_diff_dev.plus <- all_diff_dev[all_diff_dev > 0]
+hist(all_diff_dev.plus,main="histogram of bootstrap")
+```
+### compare the bootstrap and theoretical distribution
+```{r}
+histogram <- hist(all_diff_dev.plus, 
+                  breaks=seq(from=0, to=13.5, by=1), 
+                  ylim=c(0,.25), 
+                  freq=FALSE,
+                  main="histogram of bootstrap and theoretical chi-square distribution")
+
+LR <- seq(from=0, to=13.5, by=0.5)
+d_theo <- dchisq(LR,df=3)
+lines(x=LR, 
+      y=d_theo, # density
+      lwd = 2, # thickness of line
+      col = "gray")
+```
+
+### compare cumulative distribution
+get cumulative distribution at some points of the distribution of the bootstrap
+```{r}
+LR <- seq(from=0, to=7.5, by=0.5)
+
+q_bootstrap <- numeric(length(LR))
+for(i in 1:length(LR)){
+  q_bootstrap[i] <- 1 - (length(all_diff_dev.plus[all_diff_dev.plus> LR[i]])/length(all_diff_dev.plus))
+}
+
+#bootstrap distribution
+q_bootstrap
+```
+
+get cumulative distribution at some points of the theoretical distribution
+```{r}
+#theoretical distribution
+q_theo <- pchisq(LR,df=3)
+q_theo
+```
+
+compare the two cumulative distributions by QQ-plotting
+```{r}
+plot(q_bootstrap,q_theo, 
+     main="QQ-plot of bootstrap and theoretical chi-square")
+abline(0,1,col="red",lty=2)
+```
+As shown in the plots above, the distributions of bootstrap and theoretical chi-square are similar enough so that p-value calculation based on chi-square distribution is a good approximation.
