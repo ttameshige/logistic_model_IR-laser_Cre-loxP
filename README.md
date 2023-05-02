@@ -5,6 +5,7 @@ This works on R with Stan.
 * input data: tab delimited file including objective variable (0 or 1 indicating occurance of Cre-loxP recombination) and explanatory variable (continuous values of laser power)
 * outputs: probability plots from logistic model
 * demoData_analysis.Rmd is a simple analysis example. If you would like to consider some effects of cell sizes, try modeling and significance test according to demoData_analysis_3.Rmd. In it, *p*-value of the cell size effect is calculated by chi-square distribution-based method, but another calculation (parametric bootstrap approach) can be performed as in demoData_analysis_4pbLRT.Rmd. To run demoData_analysis_4pbLRT.Rmd, unzip original_model_parameters.zip.
+- The original dataset obtained by Dr. Tomoi is in original_data_Tomoi_et_al_2023.zip (Reference: Tomoi et al. (2023) *Front. Plant Sci.* doi: 10.3389/fpls.2023.1171531)
 
 # output examples
 
